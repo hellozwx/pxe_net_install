@@ -1,0 +1,32 @@
+#!/bin/bash
+umount /dev/sr0 2> /dev/null
+mount /dev/sr0 /mnt 1> /dev/null
+yum install dhcp tftp-server vsftpd syslinux xinetd -y
+sed -i '/disable/c\\tdisable\t\t\t=no' /etc/xinetd.d/tftp
+sed -i '/local_enable/clocal_enable=NO' /etc/vsftpd/vsftpd.conf
+dhcp_config='# dhcp\nsubnet 192.168.43.0 netmask 255.255.255.0 {\n  range 192.168.43.109 192.168.43.200;\n  option routers 192.168.43.108;\n  option broadcast-address 192.168.43.255;\n  default-lease-time 600;\n  max-lease-time 7200;\n  filename "pxelinux.0";\n}\n
+'
+echo -e $dhcp_config > /etc/dhcp/dhcpd.conf
+systemctl start dhcpd 2>/dev/null
+[ $? -ne 0 ] && echo "dhcp start FAILED"
+systemctl start vsftpd 2>/dev/null
+[ $? -ne 0 ] && echo "vsftpd start FAILED"
+systemctl start xinetd 2>/dev/null
+[ $? -ne 0 ] && echo "xinetd start FAILED"
+systemctl enable dhcpd
+systemctl enable vsftpd
+systemctl enable xinetd
+umount /dev/sr0
+mount /dev/sr0 /var/ftp/pub
+mkdir -p /var/lib/tftpboot/pxelinux.cfg
+cp -rf /var/ftp/pub/isolinux/isolinux.cfg /var/lib/tftpboot/pxelinux.cfg/default
+cp -rf /usr/share/syslinux/pxelinux.0 /var/lib/tftpboot/
+cp -rf /var/ftp/pub/isolinux/* /var/lib/tftpboot
+ks_value="install\nkeyboard 'us'\nrootpw --plaintext 123456\nlang zh_CN.UTF-8\nfirewall --disabled\nauth  --useshadow  --passalgo=sha512\nurl --url="ftp://192.168.43.108/pub"\ntext\nfirstboot --enable\nselinux --disabled\nnetwork  --bootproto=dhcp --device=eth0\nreboot\ntimezone Asia/Shanghai\nbootloader --location=mbr\nclearpart --all\npart swap --fstype="swap" --size=2048\npart /boot --fstype="ext4" --size=200\npart / --fstype="ext4" --size=1 --grow\n%packages\n@core\n%end"
+echo -e ${ks_value} > /var/ftp/ks.cfg
+sed -i '/initrd/c\  append initrd=initrd.img ks=ftp://192.168.43.108/ks.cfg quiet' /var/lib/tftpboot/pxelinux.cfg/default
+sed -i 's/Red Hat Enterprise Linux 7.3/Auto Install Linux by DDCW/' /var/lib/tftpboot/pxelinux.cfg/default
+sed -i '/timeout/ctimeout 30' /var/lib/tftpboot/pxelinux.cfg/default
+sed -i '/menu default/d' /var/lib/tftpboot/pxelinux.cfg/default
+sed -i '/label linux/a  menu default' /var/lib/tftpboot/pxelinux.cfg/default
+echo "successed"
